@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMAGE CLASSIFICATION TEST</title>
+<style>
+  :root {
+    color-scheme: light; 
+    --accent: #2563eb; 
+    --accent-soft: #e8efff; 
+    --line: #e5e7eb; 
+    --muted: #6b7280; 
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; 
+    min-height: 100vh; 
+    padding: 32px 16px;
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    gap: 14px;
+    background: #ffffff; 
+    color: #1f2328;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { 
+    margin: 0; 
+    font-size: 1.3rem;
+  }
+  #status { margin: 0; font-size: .9rem; color: var(--muted); }
+
+  .upload {
+    display: inline-block; 
+    padding: 10px 22px; 
+    border-radius: 8px; 
+    cursor: pointer;
+    background: var(--accent); 
+    color: #ffffff; 
+    font-weight: 600;
+  }
+  .upload.disabled { 
+    opacity: .5; 
+    cursor: not-allowed; 
+  }
+  #file { display: none; }
+
+  #img { display: none; max-width: 320px; max-height: 240px; width: auto; height: auto; }
+  #namafile { margin: 0; font-size: .9rem; color: var(--muted); word-break: break-all; text-align: center; }
+
+  .hasil { 
+    width: 100%; 
+    max-width: 760px; 
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 16px; 
+    margin-top: 10px; 
+  }
+  @media (max-width: 600px) { .hasil { grid-template-columns: 1fr; } }
+  .kartu { 
+    border: 1px solid var(--line); 
+    border-radius: 10px; 
+    padding: 16px; 
+  }
+  .kartu h2 { 
+    margin: 0 0 10px; 
+    font-size: 1rem; 
+    text-align: center; 
+    text-transform: uppercase; 
+    letter-spacing: .04em; 
+  }
+  .utama {
+    border: 2px solid var(--accent); 
+    background: var(--accent-soft); 
+    border-radius: 8px;
+    padding: 12px; 
+    text-align: center; 
+    min-height: 64px;
+  }
+  .utama .kelas { 
+    font-size: 1.15rem; 
+    font-weight: 700; 
+  }
+  .utama .persen { 
+    font-size: .95rem; 
+    color: var(--muted);
+  }
+  .judul-lain { 
+    margin: 12px 0 0; 
+    font-size: .8rem; 
+    color: var(--muted); 
+  }
+  .lain { 
+    margin: 6px 0 0; 
+    padding-left: 20px; 
+    min-height: 72px; 
+  }
+  .lain li { margin: 4px 0; }
+  .lain .p { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>IMAGE CLASSIFICATION TEST</h1>
+<p id="status">Load model...</p>
+
+<label class="upload disabled" id="tombol">Choose File
+  <input type="file" id="file" accept="image/*" disabled>
+</label>
+
+<img id="img" alt="Gambar yang dipilih">
+<p id="namafile">No File Chosen</p>
+
+<div class="hasil">
+  <div class="kartu">
+    <h2>CNN1 MODEL</h2>
+    <div class="utama"><div class="kelas" id="cnn1-kelas">-</div><div class="persen" id="cnn1-persen"></div></div>
+    <p class="judul-lain">Other Predictions</p>
+    <ul class="lain" id="cnn1-lain"></ul>
+  </div>
+  <div class="kartu">
+    <h2>CNN2 MODEL</h2>
+    <div class="utama"><div class="kelas" id="cnn2-kelas">-</div><div class="persen" id="cnn2-persen"></div></div>
+    <p class="judul-lain">Other Predictions</p>
+    <ul class="lain" id="cnn2-lain"></ul>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const MODELS = ['cnn1', 'cnn2'];
+const state = {};
+let urlLama = null;
+
+async function muat(nama) {
+  const model = await tf.loadGraphModel(`../exported_model/${nama}/tfjs_model_graph/model.json`);
+  const teks = await (await fetch(`../exported_model/${nama}/tflite/label.txt`)).text();
+  const labels = teks.split('\n').map(s => s.trim()).filter(Boolean);
+  state[nama] = { model, labels };
+}
+
+async function prediksi(nama, img) {
+  const { model, labels } = state[nama];
+  const [, h, w, c] = model.inputs[0].shape;
+  // Tanpa .div(255): kedua model sudah punya layer Rescaling di dalamnya
+  const out = tf.tidy(() =>
+    model.predict(tf.browser.fromPixels(img, c).resizeBilinear([h, w]).toFloat().expandDims(0))
+  );
+  const p = Array.from(await out.data());
+  out.dispose();
+  return p.map((v, i) => ({ kelas: labels[i] ?? 'Kelas ' + i, nilai: v }))
+          .sort((a, b) => b.nilai - a.nilai);
+}
+
+const persen = v => (v * 100).toFixed(1) + '%';
+
+function tampil(nama, hasil) {
+  $(`${nama}-kelas`).textContent = hasil[0].kelas;
+  $(`${nama}-persen`).textContent = persen(hasil[0].nilai);
+  const ul = $(`${nama}-lain`);
+  ul.replaceChildren();
+  hasil.slice(1, 4).forEach(r => {
+    const li = document.createElement('li');
+    li.textContent = r.kelas + ' ';
+    const span = document.createElement('span');
+    span.className = 'p';
+    span.textContent = '(' + persen(r.nilai) + ')';
+    li.appendChild(span);
+    ul.appendChild(li);
+  });
+}
+
+// Muat kedua model sekaligus
+Promise.all(MODELS.map(muat))
+  .then(() => {
+    $('file').disabled = false;
+    $('tombol').classList.remove('disabled');
+  })
+  .catch(err => {
+    $('status').textContent = 'Failed to load model: ' + err.message;
+    console.error(err);
+  });
+
+$('file').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (urlLama) URL.revokeObjectURL(urlLama);
+  urlLama = URL.createObjectURL(f);
+  $('img').style.display = 'none';
+  $('namafile').textContent = f.name;
+  $('status').textContent = 'Processing...';
+  $('img').src = urlLama;
+};
+
+$('img').onload = async () => {
+  $('img').style.display = 'block';
+  try {
+    for (const nama of MODELS) tampil(nama, await prediksi(nama, $('img')));
+    $('status').textContent = 'Done.';
+  } catch (err) {
+    $('status').textContent = 'Prediction failed: ' + err.message;
+    console.error(err);
+  }
+};
+
+$('img').onerror = () => { $('status').textContent = 'This file cannot be read as an image.'; };
+</script>
+</body>
+</html>
